@@ -13,6 +13,7 @@
 // limitations under the License.
 
 // cpplint: c system headers
+// 卡在setup publisher里面要用image_transport 还没有迁移过来！
 #include <eigen3/Eigen/Geometry>
 #include <builtin_interfaces/msg/time.hpp>
 #include <console_bridge/console.h>
@@ -101,47 +102,55 @@ public:
     rs2::log_to_console(severity);
 
     // Types for depth stream
+
+    _is_frame_arrived[DEPTH] = false;
     _format[DEPTH] = RS2_FORMAT_Z16;           // libRS type
     _image_format[DEPTH] = CV_16UC1;            // CVBridge type
     _encoding[DEPTH] = sensor_msgs::image_encodings::TYPE_16UC1;         // ROS message type
     _unit_step_size[DEPTH] = sizeof(uint16_t);         // sensor_msgs::ImagePtr row step size
     _stream_name[DEPTH] = "depth";
-
+    _depth_aligned_encoding[DEPTH] = sensor_msgs::image_encodings::TYPE_16UC1;
     // Infrared stream - Left
+    _is_frame_arrived[INFRA1] = false;
     _format[INFRA1] = RS2_FORMAT_Y8;           // libRS type
     _image_format[INFRA1] = CV_8UC1;            // CVBridge type
     _encoding[INFRA1] = sensor_msgs::image_encodings::TYPE_8UC1;         // ROS message type
     _unit_step_size[INFRA1] = sizeof(uint8_t);         // sensor_msgs::ImagePtr row step size
     _stream_name[INFRA1] = "infra1";
-
+    _depth_aligned_encoding[INFRA1] = sensor_msgs::image_encodings::TYPE_16UC1;   
     // Infrared stream - Right
+    _is_frame_arrived[INFRA2] = false;
     _format[INFRA2] = RS2_FORMAT_Y8;           // libRS type
     _image_format[INFRA2] = CV_8UC1;            // CVBridge type
     _encoding[INFRA2] = sensor_msgs::image_encodings::TYPE_8UC1;         // ROS message type
     _unit_step_size[INFRA2] = sizeof(uint8_t);         // sensor_msgs::ImagePtr row step size
     _stream_name[INFRA2] = "infra2";
-
+    _depth_aligned_encoding[INFRA2] = sensor_msgs::image_encodings::TYPE_16UC1;
     // Types for color stream
+    _is_frame_arrived[COLOR] = false;
     _format[COLOR] = RS2_FORMAT_RGB8;           // libRS type
     _image_format[COLOR] = CV_8UC3;            // CVBridge type
     _encoding[COLOR] = sensor_msgs::image_encodings::RGB8;         // ROS message type
     _unit_step_size[COLOR] = 3;         // sensor_msgs::ImagePtr row step size
     _stream_name[COLOR] = "color";
-
+    _depth_aligned_encoding[COLOR] = sensor_msgs::image_encodings::TYPE_16UC1;
     // Types for fisheye stream
+    _is_frame_arrived[FISHEYE] = false;
     _format[FISHEYE] = RS2_FORMAT_RAW8;           // libRS type
     _image_format[FISHEYE] = CV_8UC1;            // CVBridge type
     _encoding[FISHEYE] = sensor_msgs::image_encodings::TYPE_8UC1;         // ROS message type
     _unit_step_size[FISHEYE] = sizeof(uint8_t);         // sensor_msgs::ImagePtr row step size
     _stream_name[FISHEYE] = "fisheye";
-
+    _depth_aligned_encoding[FISHEYE] = sensor_msgs::image_encodings::TYPE_16UC1;
     // Types for Motion-Module streams
+    _is_frame_arrived[GYRO] = false;
     _format[GYRO] = RS2_FORMAT_MOTION_XYZ32F;           // libRS type
     _image_format[GYRO] = CV_8UC1;            // CVBridge type
     _encoding[GYRO] = sensor_msgs::image_encodings::TYPE_8UC1;         // ROS message type
     _unit_step_size[GYRO] = sizeof(uint8_t);         // sensor_msgs::ImagePtr row step size
     _stream_name[GYRO] = "gyro";
 
+    _is_frame_arrived[ACCEL] = false;
     _format[ACCEL] = RS2_FORMAT_MOTION_XYZ32F;           // libRS type
     _image_format[ACCEL] = CV_8UC1;            // CVBridge type
     _encoding[ACCEL] = sensor_msgs::image_encodings::TYPE_8UC1;         // ROS message type
@@ -168,6 +177,7 @@ private:
   {
     RCUTILS_LOG_INFO("getParameters...");
 
+    this->get_parameter_or("align_depth", _align_depth, ALIGN_DEPTH);
     this->get_parameter_or("enable_pointcloud", _pointcloud, POINTCLOUD);
     this->get_parameter_or("enable_sync", _sync_frames, SYNC_FRAMES);
     if (_pointcloud) {
@@ -180,26 +190,32 @@ private:
     this->get_parameter_or("depth_height", _height[DEPTH], DEPTH_HEIGHT);
     this->get_parameter_or("depth_fps", _fps[DEPTH], DEPTH_FPS);
     this->get_parameter_or("enable_depth", _enable[DEPTH], ENABLE_DEPTH);
+    _aligned_depth_images[DEPTH].resize(_width[DEPTH] * _height[DEPTH] * _unit_step_size[DEPTH]);
 
     this->get_parameter_or("infra1_width", _width[INFRA1], INFRA1_WIDTH);
     this->get_parameter_or("infra1_height", _height[INFRA1], INFRA1_HEIGHT);
     this->get_parameter_or("infra1_fps", _fps[INFRA1], INFRA1_FPS);
     this->get_parameter_or("enable_infra1", _enable[INFRA1], ENABLE_INFRA1);
-
+    _aligned_depth_images[INFRA1].resize(_width[DEPTH] * _height[DEPTH] * _unit_step_size[DEPTH]);
+   
     this->get_parameter_or("infra2_width", _width[INFRA2], INFRA2_WIDTH);
     this->get_parameter_or("infra2_height", _height[INFRA2], INFRA2_HEIGHT);
     this->get_parameter_or("infra2_fps", _fps[INFRA2], INFRA2_FPS);
     this->get_parameter_or("enable_infra2", _enable[INFRA2], ENABLE_INFRA2);
+    _aligned_depth_images[INFRA2].resize(_width[DEPTH] * _height[DEPTH] * _unit_step_size[DEPTH]);
 
     this->get_parameter_or("color_width", _width[COLOR], COLOR_WIDTH);
     this->get_parameter_or("color_height", _height[COLOR], COLOR_HEIGHT);
     this->get_parameter_or("color_fps", _fps[COLOR], COLOR_FPS);
     this->get_parameter_or("enable_color", _enable[COLOR], ENABLE_COLOR);
+    _aligned_depth_images[COLOR].resize(_width[DEPTH] * _height[DEPTH] * _unit_step_size[DEPTH]);
 
     this->get_parameter_or("fisheye_width", _width[FISHEYE], FISHEYE_WIDTH);
     this->get_parameter_or("fisheye_height", _height[FISHEYE], FISHEYE_HEIGHT);
     this->get_parameter_or("fisheye_fps", _fps[FISHEYE], FISHEYE_FPS);
     this->get_parameter_or("enable_fisheye", _enable[FISHEYE], ENABLE_FISHEYE);
+    _aligned_depth_images[FISHEYE].resize(_width[DEPTH] * _height[DEPTH] * _unit_step_size[DEPTH]);
+
 
     this->get_parameter_or("gyro_fps", _fps[GYRO], GYRO_FPS);
     this->get_parameter_or("accel_fps", _fps[ACCEL], ACCEL_FPS);
@@ -237,7 +253,11 @@ private:
       std::string(DEFAULT_GYRO_OPTICAL_FRAME_ID));
     this->get_parameter_or("accel_optical_frame_id", _optical_frame_id[ACCEL],
       std::string(DEFAULT_ACCEL_OPTICAL_FRAME_ID));
-  }
+    this->get_parameter_or("aligned_depth_to_color_frame_id",   _depth_aligned_frame_id[COLOR],   std::string(DEFAULT_ALIGNED_DEPTH_TO_COLOR_FRAME_ID));
+    this->get_parameter_or("aligned_depth_to_infra1_frame_id",  _depth_aligned_frame_id[INFRA1],  std::string(DEFAULT_ALIGNED_DEPTH_TO_INFRA1_FRAME_ID));
+    this->get_parameter_or("aligned_depth_to_infra2_frame_id",  _depth_aligned_frame_id[INFRA2],  std::string(DEFAULT_ALIGNED_DEPTH_TO_INFRA2_FRAME_ID));
+    this->get_parameter_or("aligned_depth_to_fisheye_frame_id", _depth_aligned_frame_id[FISHEYE], std::string(DEFAULT_ALIGNED_DEPTH_TO_FISHEYE_FRAME_ID));
+}
 
   void setupDevice()
   {
@@ -399,17 +419,97 @@ private:
         "camera/extrinsics/fisheye2imu", rmw_qos_profile_default);
     }
   }
+void alignFrame(const rs2_intrinsics& from_intrin,
+                const rs2_intrinsics& other_intrin,
+                rs2::frame from_image,
+                uint32_t output_image_bytes_per_pixel,
+                const rs2_extrinsics& from_to_other,
+                std::vector<uint8_t>& out_vec)
+{
+    static const auto meter_to_mm = 0.001f;
+    uint8_t* p_out_frame = out_vec.data();
+    auto from_vid_frame = from_image.as<rs2::video_frame>();
+    auto from_bytes_per_pixel = from_vid_frame.get_bytes_per_pixel();
 
+    static const auto blank_color = 0x00;
+    memset(p_out_frame, blank_color, other_intrin.height * other_intrin.width * output_image_bytes_per_pixel);
+
+    auto p_from_frame = reinterpret_cast<const uint8_t*>(from_image.get_data());
+    auto from_stream_type = from_image.get_profile().stream_type();
+    float depth_units = ((from_stream_type == RS2_STREAM_DEPTH)?_depth_scale_meters:1.f);
+// #pragma omp parallel for schedule(dynamic)
+    for (int from_y = 0; from_y < from_intrin.height; ++from_y)
+    {
+        int from_pixel_index = from_y * from_intrin.width;
+        for (int from_x = 0; from_x < from_intrin.width; ++from_x, ++from_pixel_index)
+        {
+            // Skip over depth pixels with the value of zero
+            float depth = (from_stream_type == RS2_STREAM_DEPTH)?(depth_units * ((const uint16_t*)p_from_frame)[from_pixel_index]): 1.f;
+            if (depth)
+            {
+                // Map the top-left corner of the depth pixel onto the other image
+                float from_pixel[2] = { from_x - 0.5f, from_y - 0.5f }, from_point[3], other_point[3], other_pixel[2];
+                rs2_deproject_pixel_to_point(from_point, &from_intrin, from_pixel, depth);
+                rs2_transform_point_to_point(other_point, &from_to_other, from_point);
+                rs2_project_point_to_pixel(other_pixel, &other_intrin, other_point);
+                const int other_x0 = static_cast<int>(other_pixel[0] + 0.5f);
+                const int other_y0 = static_cast<int>(other_pixel[1] + 0.5f);
+
+                // Map the bottom-right corner of the depth pixel onto the other image
+                from_pixel[0] = from_x + 0.5f; from_pixel[1] = from_y + 0.5f;
+                rs2_deproject_pixel_to_point(from_point, &from_intrin, from_pixel, depth);
+                rs2_transform_point_to_point(other_point, &from_to_other, from_point);
+                rs2_project_point_to_pixel(other_pixel, &other_intrin, other_point);
+                const int other_x1 = static_cast<int>(other_pixel[0] + 0.5f);
+                const int other_y1 = static_cast<int>(other_pixel[1] + 0.5f);
+
+                if (other_x0 < 0 || other_y0 < 0 || other_x1 >= other_intrin.width || other_y1 >= other_intrin.height)
+                    continue;
+
+                for (int y = other_y0; y <= other_y1; ++y)
+                {
+                    for (int x = other_x0; x <= other_x1; ++x)
+                    {
+                        int out_pixel_index = y * other_intrin.width + x;
+                        //Tranfer n-bit pixel to n-bit pixel
+                        for (int i = 0; i < from_bytes_per_pixel; i++)
+                        {
+                            const auto out_offset = out_pixel_index * output_image_bytes_per_pixel + i;
+                            const auto from_offset = from_pixel_index * output_image_bytes_per_pixel + i;
+                            p_out_frame[out_offset] = p_from_frame[from_offset] * (depth_units / meter_to_mm);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+void updateIsFrameArrived(std::map<stream_index_pair, bool>& is_frame_arrived,
+                                             rs2_stream stream_type, int stream_index)
+{
+    try
+    {
+        is_frame_arrived.at({stream_type, stream_index}) = true;
+    }
+    catch (std::out_of_range)
+    {
+        RCUTILS_LOG_ERROR("Stream type is not supported!");
+    }
+}
   void setupStreams()
   {
     RCUTILS_LOG_INFO("setupStreams...");
     try {
-      for (auto & streams : IMAGE_STREAMS) {
-        for (auto & elem : streams) {
-          if (true == _enable[elem]) {
+      for (auto & streams : IMAGE_STREAMS) 
+      {
+        for (auto & elem : streams) 
+        {
+          if (true == _enable[elem]) 
+          {
             auto & sens = _sensors[elem];
             auto profiles = sens->get_stream_profiles();
-            for (auto & profile : profiles) {
+            for (auto & profile : profiles) 
+            {
               auto video_profile = profile.as<rs2::video_stream_profile>();
               if (video_profile.format() == _format[elem] &&
                 video_profile.width() == _width[elem] &&
@@ -421,8 +521,10 @@ private:
 
                 _image[elem] =
                   cv::Mat(_width[elem], _height[elem], _image_format[elem], cv::Scalar(0, 0, 0));
-                RCUTILS_LOG_INFO("%s stream is enabled - width: %d, height: %d, fps: %d",
-                  _stream_name[elem].c_str(), _width[elem], _height[elem], _fps[elem]);
+                if (_align_depth)
+                    _depth_aligned_image[elem] = cv::Mat(_width[DEPTH], _height[DEPTH], _image_format[DEPTH], cv::Scalar(0, 0, 0));
+
+                RCUTILS_LOG_INFO("%s stream is enabled - width: %d, height: %d, fps: %d", _stream_name[elem].c_str(), _width[elem], _height[elem], _fps[elem]);
                 break;
               }
             }
@@ -438,8 +540,10 @@ private:
       }
 
       // Publish image stream info
-      for (auto & profiles : _enabled_profiles) {
-        for (auto & profile : profiles.second) {
+      for (auto & profiles : _enabled_profiles) 
+      {
+        for (auto & profile : profiles.second) 
+        {
           auto video_profile = profile.as<rs2::video_stream_profile>();
           updateStreamCalibData(video_profile);
         }
@@ -464,41 +568,87 @@ private:
               1000000;
             t = rclcpp::Time(_ros_time_base.nanoseconds() + elapsed_camera_ns, RCL_ROS_TIME);
           }
-          auto is_color_frame_arrived = false;
-          auto is_depth_frame_arrived = false;
-          if (frame.is<rs2::frameset>()) {
+          std::vector<rs2::frame> frames;
+          std::map<stream_index_pair, bool> is_frame_arrived(_is_frame_arrived);
+          // auto is_color_frame_arrived = false;
+          // auto is_depth_frame_arrived = false;
+          if (frame.is<rs2::frameset>()) 
+          {
             RCUTILS_LOG_DEBUG("Frameset arrived");
+            RCUTILS_LOG_INFO("Frameset arrived");
+            bool is_depth_arrived = false;
+            rs2::frame depth_frame;
             auto frameset = frame.as<rs2::frameset>();
-            for (auto it = frameset.begin(); it != frameset.end(); ++it) {
+            for (auto it = frameset.begin(); it != frameset.end(); ++it) 
+            {
               auto f = (*it);
               auto stream_type = f.get_profile().stream_type();
-              if (RS2_STREAM_COLOR == stream_type) {
-                is_color_frame_arrived = true;
-              } else if (RS2_STREAM_DEPTH == stream_type) {
-                is_depth_frame_arrived = true;
-              }
+              auto stream_index = f.get_profile().stream_index();
+              updateIsFrameArrived(is_frame_arrived, stream_type, stream_index);
+              // if (RS2_STREAM_COLOR == stream_type) {
+              //   is_color_frame_arrived = true;
+              // } else if (RS2_STREAM_DEPTH == stream_type) {
+              //   is_depth_frame_arrived = true;
+              // }
 
-              RCUTILS_LOG_DEBUG(
-                "Frameset contain %s frame. frame_number: %llu ; frame_TS: %f ; ros_TS(NSec): %lu",
-                rs2_stream_to_string(stream_type), frame.get_frame_number(),
-                frame.get_timestamp(), t.nanoseconds());
-              publishFrame(f, t);
+              // RCUTILS_LOG_DEBUG(
+              //   "Frameset contain %s frame. frame_number: %llu ; frame_TS: %f ; ros_TS(NSec): %lu",
+              //   rs2_stream_to_string(stream_type), frame.get_frame_number(),
+              //   frame.get_timestamp(), t.nanoseconds());
+              stream_index_pair sip{stream_type,stream_index};
+              publishFrame(f, t, 
+                           sip,
+                           _image,
+                           _info_publisher,
+                           _image_publishers,
+                           _seq,
+                           _camera_info,
+                           _optical_frame_id,
+                           _encoding,true);
+              // add align_depth
+              if (_align_depth && stream_type != RS2_STREAM_DEPTH)
+              {
+                  frames.push_back(f);
+              }
+              else
+              {
+                  depth_frame = f;
+                  is_depth_arrived = true;
+              }
             }
-          } else {
+
+            if (_align_depth && is_depth_arrived)
+            {
+                RCUTILS_LOG_INFO("publishAlignedDepthToOthers(...)");
+                publishAlignedDepthToOthers(depth_frame, frames, t);
+            }
+          } 
+          else 
+          {
             auto stream_type = frame.get_profile().stream_type();
+            auto stream_index = frame.get_profile().stream_index();
+            updateIsFrameArrived(is_frame_arrived, stream_type, stream_index);
+            stream_index_pair sip{stream_type,stream_index};
             RCUTILS_LOG_DEBUG(
               "%s video frame arrived. frame_number: %llu ; frame_TS: %f ; ros_TS(NSec): %lu",
               rs2_stream_to_string(stream_type), frame.get_frame_number(),
               frame.get_timestamp(), t.nanoseconds());
-            publishFrame(frame, t);
+            publishFrame(frame, t, 
+                           sip,
+                           _image,
+                           _info_publisher,
+                           _image_publishers,
+                           _seq,
+                           _camera_info,
+                           _optical_frame_id,
+                           _encoding,true);
           }
-
-          if (_pointcloud && is_depth_frame_arrived && is_color_frame_arrived) {
+          if (_pointcloud && (0 != _pointcloud_publisher->get_queue_size())) 
+          {
             RCUTILS_LOG_DEBUG("publishPCTopic(...)");
-            publishPCTopic(t);
+            publishPCTopic(t, is_frame_arrived);
           }
         };
-
       // Streaming IMAGES
       for (auto & streams : IMAGE_STREAMS) {
         std::vector<rs2::stream_profile> profiles;
@@ -520,25 +670,30 @@ private:
             _depth_scale_meters = depth_sensor.get_depth_scale();
           }
 
-          if (_sync_frames) {
+          if (_sync_frames) 
+          {
             sens->start(_syncer);
-          } else {
+          } 
+          else 
+          {
             sens->start(frame_callback);
           }
         }
       }          // end for
 
-      if (_sync_frames) {
+      if (_sync_frames) 
+      {
         _syncer.start(frame_callback);
       }
 
       // Streaming HID
       for (const auto streams : HID_STREAMS) {
         for (auto & elem : streams) {
-          if (true == _enable[elem]) {
+          if (_enable[elem]) {
             auto & sens = _sensors[elem];
             auto profiles = sens->get_stream_profiles();
-            for (rs2::stream_profile & profile : profiles) {
+            for (rs2::stream_profile & profile : profiles) 
+            {
               if (profile.fps() == _fps[elem] &&
                 profile.format() == _format[elem])
               {
@@ -626,6 +781,8 @@ private:
       if (true == _enable[DEPTH] &&
         true == _enable[FISHEYE])
       {
+        static const char* frame_id = "depth_to_fisheye_extrinsics";
+        
         auto ex = getFisheye2DepthExtrinsicsMsg();
         _fe_to_depth_publisher->publish(ex);
       }
@@ -682,13 +839,13 @@ private:
     }
 
     // Why Depth to Color?
-    if (stream_index == DEPTH && _enable[DEPTH] && _enable[COLOR]) {
-      _depth2color_extrinsics = depth_profile.get_extrinsics_to(_enabled_profiles[COLOR].front());
-      // set depth to color translation values in Projection matrix (P)
-      _camera_info[stream_index].p.at(3) = _depth2color_extrinsics.translation[0];             // Tx
-      _camera_info[stream_index].p.at(7) = _depth2color_extrinsics.translation[1];             // Ty
-      _camera_info[stream_index].p.at(11) = _depth2color_extrinsics.translation[2];            // Tz
-    }
+    // if (stream_index == DEPTH && _enable[DEPTH] && _enable[COLOR]) {
+    //   _depth2color_extrinsics = depth_profile.get_extrinsics_to(_enabled_profiles[COLOR].front());
+    //   // set depth to color translation values in Projection matrix (P)
+    //   _camera_info[stream_index].p.at(3) = _depth2color_extrinsics.translation[0];             // Tx
+    //   _camera_info[stream_index].p.at(7) = _depth2color_extrinsics.translation[1];             // Ty
+    //   _camera_info[stream_index].p.at(11) = _depth2color_extrinsics.translation[2];            // Tz
+    // }
 
     _camera_info[stream_index].distortion_model = "plumb_bob";
 
@@ -703,9 +860,29 @@ private:
     _camera_info[stream_index].r.at(7) = 0.0;
     _camera_info[stream_index].r.at(8) = 1.0;
 
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 5; i++) 
+    {
       _camera_info[stream_index].d.push_back(intrinsic.coeffs[i]);
     }
+
+    if (stream_index == DEPTH && _enable[DEPTH] && _enable[COLOR])
+    {
+        _camera_info[stream_index].p.at(3) = 0;     // Tx
+        _camera_info[stream_index].p.at(7) = 0;     // Ty
+    }
+    if (_align_depth)
+    {
+        for (auto& profiles : _enabled_profiles)
+        {
+            for (auto& profile : profiles.second)
+            {
+                auto video_profile = profile.as<rs2::video_stream_profile>();
+                stream_index_pair stream_index{video_profile.stream_type(), video_profile.stream_index()};
+                _depth_aligned_camera_info[stream_index] = _camera_info[DEPTH];
+            }
+        }
+    }
+
   }
 
   Eigen::Quaternionf rotationMatrixToQuaternion(float rotation[9]) const
@@ -875,8 +1052,9 @@ private:
     // Publish Fisheye TF
   }
 
-  void publishPCTopic(const rclcpp::Time & t)
+  void publishPCTopic(const rclcpp::Time & t, const std::map<stream_index_pair, bool>& is_frame_arrived)
   {
+    auto& depth2color_extrinsics = _depth_to_other_extrinsics[COLOR];
     auto color_intrinsics = _stream_intrinsics[COLOR];
     auto image_depth16 = reinterpret_cast<const uint16_t *>(_image[DEPTH].data);
     auto depth_intrinsics = _stream_intrinsics[DEPTH];
@@ -908,13 +1086,16 @@ private:
     unsigned char * color_data = _image[COLOR].data;
 
     // Fill the PointCloud2 fields
-    for (int y = 0; y < depth_intrinsics.height; ++y) {
-      for (int x = 0; x < depth_intrinsics.width; ++x) {
+    for (int y = 0; y < depth_intrinsics.height; ++y) 
+    {
+      for (int x = 0; x < depth_intrinsics.width; ++x) 
+      {
         scaled_depth = static_cast<float>(*image_depth16) * _depth_scale_meters;
         float depth_pixel[2] = {static_cast<float>(x), static_cast<float>(y)};
         rs2_deproject_pixel_to_point(depth_point, &depth_intrinsics, depth_pixel, scaled_depth);
 
-        if (depth_point[2] <= 0.f || depth_point[2] > 5.f) {
+        if (depth_point[2] <= 0.f || depth_point[2] > 5.f) 
+        {
           depth_point[0] = 0.f;
           depth_point[1] = 0.f;
           depth_point[2] = 0.f;
@@ -936,7 +1117,9 @@ private:
           *iter_r = static_cast<uint8_t>(96);
           *iter_g = static_cast<uint8_t>(157);
           *iter_b = static_cast<uint8_t>(198);
-        } else {
+        } 
+        else 
+        {
           auto i = static_cast<int>(color_pixel[0]);
           auto j = static_cast<int>(color_pixel[1]);
 
@@ -1036,46 +1219,131 @@ private:
       }
     }
   }
-
-  void publishFrame(rs2::frame f, const rclcpp::Time & t)
-  {
-    RCUTILS_LOG_DEBUG("publishFrame(...)");
-    stream_index_pair stream{f.get_profile().stream_type(), f.get_profile().stream_index()};
-    auto & image = _image[stream];
-    image.data = const_cast<uchar *>(reinterpret_cast<const uchar *>(f.get_data()));
-    ++(_seq[stream]);
-    auto & info_publisher = _info_publisher[stream];
-    auto & image_publisher = _image_publishers[stream];
-    // if (0 != info_publisher.getNumSubscribers() ||
-    //     0 != image_publisher.getNumSubscribers())
+void publishAlignedDepthToOthers(rs2::frame depth_frame, const std::vector<rs2::frame>& frames, const rclcpp::Time& t)
+{
+    for (auto&& other_frame : frames)
     {
-      auto width = 0;
-      auto height = 0;
-      auto bpp = 1;
-      if (f.is<rs2::video_frame>()) {
-        auto image = f.as<rs2::video_frame>();
-        width = image.get_width();
-        height = image.get_height();
-        bpp = image.get_bytes_per_pixel();
-      }
+        auto stream_type = other_frame.get_profile().stream_type();
+        if (RS2_STREAM_DEPTH == stream_type)
+            continue;
 
-      sensor_msgs::msg::Image::SharedPtr img;
-      img = cv_bridge::CvImage(std_msgs::msg::Header(), _encoding[stream], image).toImageMsg();
-      img->width = width;
-      img->height = height;
-      img->is_bigendian = false;
-      img->step = width * bpp;
-      img->header.frame_id = _optical_frame_id[stream];
-      img->header.stamp = t;
+        auto stream_index = other_frame.get_profile().stream_index();
+        stream_index_pair sip{stream_type, stream_index};
+        //auto& info_publisher = _depth_aligned_info_publisher.at(sip);
+        //auto& image_publisher = _depth_aligned_image_publishers.at(sip);
+        //if(0 != info_publisher.getNumSubscribers() ||
+        //   0 != image_publisher.first.getNumSubscribers())
+        {
+            auto from_image_frame = depth_frame.as<rs2::video_frame>();
+            auto& out_vec = _aligned_depth_images[sip];
+            alignFrame(_stream_intrinsics[DEPTH], _stream_intrinsics[sip],
+                       depth_frame, from_image_frame.get_bytes_per_pixel(),
+                       _depth_to_other_extrinsics[sip], out_vec);
 
-      auto & cam_info = _camera_info[stream];
-      cam_info.header.stamp = t;
-      info_publisher->publish(cam_info);
+            auto& from_image = _depth_aligned_image[sip];
+            from_image.data = out_vec.data();
 
-      image_publisher->publish(img);
-      RCUTILS_LOG_DEBUG("%s stream published", rs2_stream_to_string(f.get_profile().stream_type()));
+            publishFrame(depth_frame, t, sip,
+                         _depth_aligned_image,
+                         _depth_aligned_info_publisher,
+                         _depth_aligned_image_publishers, _depth_aligned_seq,
+                         _depth_aligned_camera_info, _optical_frame_id,
+                         _depth_aligned_encoding, false);
+        }
     }
-  }
+}
+  // void publishFrame(rs2::frame f, const rclcpp::Time & t)
+  // {
+  //   RCUTILS_LOG_DEBUG("publishFrame(...)");
+  //   stream_index_pair stream{f.get_profile().stream_type(), f.get_profile().stream_index()};
+  //   auto & image = _image[stream];
+  //   image.data = const_cast<uchar *>(reinterpret_cast<const uchar *>(f.get_data()));
+  //   ++(_seq[stream]);
+  //   auto & info_publisher = _info_publisher[stream];
+  //   auto & image_publisher = _image_publishers[stream];
+  //   if (0 != info_publisher.getNumSubscribers() ||
+  //        0 != image_publisher.getNumSubscribers())
+  //   {
+  //     auto width = 0;
+  //     auto height = 0;
+  //     auto bpp = 1;
+  //     if (f.is<rs2::video_frame>()) {
+  //       auto image = f.as<rs2::video_frame>();
+  //       width = image.get_width();
+  //       height = image.get_height();
+  //       bpp = image.get_bytes_per_pixel();
+  //     }
+
+  //     sensor_msgs::msg::Image::SharedPtr img;
+  //     img = cv_bridge::CvImage(std_msgs::msg::Header(), _encoding[stream], image).toImageMsg();
+  //     img->width = width;
+  //     img->height = height;
+  //     img->is_bigendian = false;
+  //     img->step = width * bpp;
+  //     img->header.frame_id = _optical_frame_id[stream];
+  //     img->header.stamp = t;
+  //     auto & cam_info = _camera_info[stream];
+  //     cam_info.header.stamp = t;
+  //     info_publisher->publish(cam_info);
+
+  //     image_publisher->publish(img);
+  //     RCUTILS_LOG_DEBUG("%s stream published", rs2_stream_to_string(f.get_profile().stream_type()));
+  //   }
+  // }
+
+  void publishFrame(rs2::frame f, const rclcpp::Time& t,
+                    const stream_index_pair& stream,
+                    std::map<stream_index_pair, cv::Mat>& images,
+                    const std::map<stream_index_pair, rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr>& info_publishers,
+                    const std::map<stream_index_pair, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr>& image_publishers,
+                    std::map<stream_index_pair, int>& seq,
+                    std::map<stream_index_pair, sensor_msgs::msg::CameraInfo>& camera_info,
+                    const std::map<stream_index_pair, std::string>& optical_frame_id,
+                    const std::map<stream_index_pair, std::string>& encoding,
+                    bool copy_data_from_frame)
+ {
+    RCUTILS_LOG_DEBUG("publishFrame(...)");
+    
+    auto& image = images[stream];
+
+    if (copy_data_from_frame)
+        image.data = const_cast<uchar *>(reinterpret_cast<const uchar *>(f.get_data()));
+    ++(seq[stream]);
+    auto& info_publisher = info_publishers.at(stream);
+    auto& image_publisher = image_publishers.at(stream);
+    //if(0 != info_publisher.getNumSubscribers() ||
+    //   0 != image_publisher.first.getNumSubscribers())
+    {
+        auto width = 0;
+        auto height = 0;
+        auto bpp = 1;
+        if (f.is<rs2::video_frame>())
+        {
+            auto image = f.as<rs2::video_frame>();
+            width = image.get_width();
+            height = image.get_height();
+            bpp = image.get_bytes_per_pixel();
+        }
+
+        sensor_msgs::msg::Image::SharedPtr img;
+        img = cv_bridge::CvImage(std_msgs::msg::Header(), encoding.at(stream), image).toImageMsg();
+        img->width = width;
+        img->height = height;
+        img->is_bigendian = false;
+        img->step = width * bpp;
+        img->header.frame_id = optical_frame_id.at(stream);
+        img->header.stamp = t;
+        //img->header.seq = seq[stream];
+
+        auto& cam_info = camera_info.at(stream);
+        cam_info.header.stamp = t;
+        //cam_info.header.seq = seq[stream];
+        info_publisher->publish(cam_info);
+
+        image_publisher->publish(img);
+        RCUTILS_LOG_DEBUG("%s stream published", rs2_stream_to_string(f.get_profile().stream_type()));
+    }
+ }
 
   bool getEnabledProfile(const stream_index_pair & stream_index, rs2::stream_profile & profile)
   {
@@ -1109,17 +1377,15 @@ private:
   std::map<stream_index_pair, std::string> _stream_name;
   tf2_ros::StaticTransformBroadcaster _static_tf_broadcaster;
 
-  std::map<stream_index_pair,
-    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> _image_publishers;
+  std::map<stream_index_pair, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> _image_publishers;
   std::map<stream_index_pair, rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr> _imu_publishers;
   std::map<stream_index_pair, int> _image_format;
   std::map<stream_index_pair, rs2_format> _format;
-  std::map<stream_index_pair,
-    rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr> _info_publisher;
-  std::map<stream_index_pair,
-    rclcpp::Publisher<realsense_camera_msgs::msg::IMUInfo>::SharedPtr> _imu_info_publisher;
+  std::map<stream_index_pair, rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr> _info_publisher;
+  std::map<stream_index_pair, rclcpp::Publisher<realsense_camera_msgs::msg::IMUInfo>::SharedPtr> _imu_info_publisher;
   std::map<stream_index_pair, cv::Mat> _image;
   std::map<stream_index_pair, std::string> _encoding;
+  std::map<stream_index_pair, std::vector<uint8_t>> _aligned_depth_images;
 
   std::string _base_frame_id;
   std::map<stream_index_pair, std::string> _frame_id;
@@ -1127,17 +1393,32 @@ private:
   std::map<stream_index_pair, int> _seq;
   std::map<stream_index_pair, int> _unit_step_size;
   std::map<stream_index_pair, sensor_msgs::msg::CameraInfo> _camera_info;
-  rclcpp::Publisher<realsense_camera_msgs::msg::Extrinsics>::SharedPtr _fe_to_depth_publisher,
-    _fe_to_imu_publisher;
+  rclcpp::Publisher<realsense_camera_msgs::msg::Extrinsics>::SharedPtr _fe_to_depth_publisher, _fe_to_imu_publisher;
   bool _intialize_time_base;
   double _camera_time_base;
   std::map<stream_index_pair, std::vector<rs2::stream_profile>> _enabled_profiles;
 
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr _pointcloud_publisher;
   rclcpp::Time _ros_time_base;
+  bool _align_depth;
   bool _sync_frames;
   bool _pointcloud;
   rs2::asynchronous_syncer _syncer;
+
+  std::map<stream_index_pair, cv::Mat> _depth_aligned_image;
+  std::map<stream_index_pair, std::string> _depth_aligned_encoding;
+  std::map<stream_index_pair, sensor_msgs::msg::CameraInfo> _depth_aligned_camera_info;
+  std::map<stream_index_pair, int> _depth_aligned_seq;
+  std::map<stream_index_pair, rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr> _depth_aligned_info_publisher;
+  std::map<stream_index_pair, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> _depth_aligned_image_publishers;
+  std::map<stream_index_pair, std::string> _depth_aligned_frame_id;
+  std::map<stream_index_pair, rclcpp::Publisher<realsense_camera_msgs::msg::Extrinsics>::SharedPtr> _depth_to_other_extrinsics_publishers;
+  std::map<stream_index_pair, rs2_extrinsics> _depth_to_other_extrinsics;
+
+  std::map<stream_index_pair, bool> _is_frame_arrived;
+
+
+
   rs2_extrinsics _depth2color_extrinsics;
 };  // end class
 
