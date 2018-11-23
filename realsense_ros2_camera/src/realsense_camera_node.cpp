@@ -153,7 +153,26 @@ public:
   {}
 
   virtual void onInit()
-  {
+  { 
+    auto parameter_change_cb =
+      [this](std::vector<rclcpp::Parameter> parameters) -> rcl_interfaces::msg::SetParametersResult
+      {
+        auto result = rcl_interfaces::msg::SetParametersResult();
+        result.successful = true;
+        for (auto parameter : parameters) {
+          RCLCPP_INFO(get_logger(),
+            "set parameter \"%s\" to \"%f\"",
+            parameter.get_name().c_str(),
+            parameter.as_bool());
+          if (parameter.get_name() == "enable_pointcloud") {
+            _pointcloud = parameter.as_bool();
+            RCLCPP_INFO(get_logger(), "reset streams! ");
+            // getParameters();
+          }
+        }
+
+        return result;
+    };
     getParameters();
     setupDevice();
     setupPublishers();
@@ -161,6 +180,7 @@ public:
     rclcpp::sleep_for(std::chrono::nanoseconds(2000000000));
     publishStaticTransforms();
     RCUTILS_LOG_INFO("RealSense Node Is Up!");
+    this->register_param_change_callback(parameter_change_cb);
   }
 
 private:
@@ -168,8 +188,10 @@ private:
   {
     RCUTILS_LOG_INFO("getParameters...");
 
-    this->get_parameter_or("enable_pointcloud", _pointcloud, POINTCLOUD);
+    this->set_parameter_if_not_set("enable_pointcloud", POINTCLOUD);
+    RCUTILS_LOG_INFO("Done!");
     this->get_parameter_or("enable_sync", _sync_frames, SYNC_FRAMES);
+    _pointcloud = this->get_parameter("enable_pointcloud").as_bool();
     if (_pointcloud) {
       _sync_frames = true;
     }
@@ -435,7 +457,7 @@ private:
               }
             }
             if (_enabled_profiles.find(elem) == _enabled_profiles.end()) {
-              RCUTILS_LOG_WARN("Given stream configuration is not supported by the device!")
+              RCUTILS_LOG_WARN("Given stream configuration is not supported by the device!");
               RCUTILS_LOG_WARN("Stream: %s, Format: %d, Width: %d, Height: %d, FPS: %d",
                 rs2_stream_to_string(elem.first), _format[elem], _width[elem], _height[elem],
                 _fps[elem]);
@@ -1029,7 +1051,7 @@ private:
         float depth_pixel[2] = {static_cast<float>(x), static_cast<float>(y)};
         rs2_deproject_pixel_to_point(depth_point, &depth_intrinsics, depth_pixel, scaled_depth);
 
-        if (depth_point[2] <= 0.f || depth_point[2] > 5.f) {
+        if (depth_point[2] <= 0.f) {
           depth_point[0] = 0.f;
           depth_point[1] = 0.f;
           depth_point[2] = 0.f;
@@ -1254,6 +1276,7 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr _pointcloud_publisher;
   rclcpp::Time _ros_time_base;
   bool _sync_frames;
+
   bool _pointcloud;
   bool _align_depth;
   rs2::asynchronous_syncer _syncer;
