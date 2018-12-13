@@ -531,7 +531,9 @@ private:
           if (_pointcloud && is_depth_frame_arrived && is_color_frame_arrived) {
             RCUTILS_LOG_DEBUG("publishPCTopic(...)");
             publishPCTopic(t);
+            // std::cout << "publish pc topic!" << std::endl;
           }
+          
         };
 
       // Streaming IMAGES
