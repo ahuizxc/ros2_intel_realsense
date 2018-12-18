@@ -75,9 +75,12 @@ find_package(tf2 REQUIRED)
 find_package(realsense_camera_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(diagnostic_updater)
+find_package(image_transport)
 
 include_directories(
   include
+  ${image_transport_INCLUDE_DIRS}
   ${rclcpp_INCLUDE_DIRS}
   ${rmw_implementation_INCLUDE_DIRS}
   ${std_msgs_INCLUDE_DIRS}
@@ -85,6 +88,7 @@ include_directories(
   ${cv_bridge_INCLUDE_DIRS}
   ${tf2_ros_INCLUDE_DIRS}
   ${tf2_INCLUDE_DIRS}
+  ${diagnostic_updater_INCLUDE_DIRS}
 )
 
 add_executable(${PROJECT_NAME}
@@ -107,7 +111,7 @@ ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rmw_implementation
   std_msgs
-  sensor_msgs
+  sensor_msgs 
   tf2_ros
   tf2
   realsense_camera_msgs

@@ -35,7 +35,7 @@ namespace realsense2_camera
         frequency_status_(diagnostic_updater::FrequencyStatusParam(&expected_frequency_, &expected_frequency_)),
         diagnostic_updater_(ros::NodeHandle(), ros::NodeHandle("~"), ros::this_node::getName() + "_" + name)
       {
-        ROS_INFO("Expected frequency for %s = %.5f", name.c_str(), expected_frequency_);
+        RCUTILS_LOG_INFO("Expected frequency for %s = %.5f", name.c_str(), expected_frequency_);
         diagnostic_updater_.setHardwareID(hardware_id);
         diagnostic_updater_.add(frequency_status_);
       }
@@ -181,8 +181,9 @@ namespace realsense2_camera
         double _camera_time_base;
         std::map<stream_index_pair, std::vector<rs2::stream_profile>> _enabled_profiles;
 
-        ros::Publisher _pointcloud_publisher;
-        ros::Time _ros_time_base;
+        rclcpp::Publisher _pointcloud_publisher;
+        rclcpp::Time _ros_time_base;
+        rclcpp::Clock _ros_clock;
         bool _align_depth;
         bool _sync_frames;
         bool _pointcloud;
@@ -197,10 +198,10 @@ namespace realsense2_camera
         std::map<stream_index_pair, std::string> _depth_aligned_encoding;
         std::map<stream_index_pair, sensor_msgs::CameraInfo> _depth_aligned_camera_info;
         std::map<stream_index_pair, int> _depth_aligned_seq;
-        std::map<stream_index_pair, ros::Publisher> _depth_aligned_info_publisher;
+        std::map<stream_index_pair, rclcpp::Publisher> _depth_aligned_info_publisher;
         std::map<stream_index_pair, ImagePublisherWithFrequencyDiagnostics> _depth_aligned_image_publishers;
         std::map<stream_index_pair, std::string> _depth_aligned_frame_id;
-        std::map<stream_index_pair, ros::Publisher> _depth_to_other_extrinsics_publishers;
+        std::map<stream_index_pair, rclcpp::Publisher> _depth_to_other_extrinsics_publishers;
         std::map<stream_index_pair, rs2_extrinsics> _depth_to_other_extrinsics;
 
         std::map<stream_index_pair, bool> _is_frame_arrived;
@@ -210,8 +211,7 @@ namespace realsense2_camera
     class BaseD400Node : public BaseRealSenseNode
     {
     public:
-        BaseD400Node(ros::NodeHandle& nodeHandle,
-                     ros::NodeHandle& privateNodeHandle,
+        BaseD400Node(rclcpp::Node& node,
                      rs2::device dev, const std::string& serial_no);
         virtual void registerDynamicReconfigCb() override;
 

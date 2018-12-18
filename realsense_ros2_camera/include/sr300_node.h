@@ -35,8 +35,9 @@ namespace realsense2_camera
     class SR300Node : public BaseRealSenseNode
     {
     public:
-        SR300Node(ros::NodeHandle& nodeHandle,
-                  ros::NodeHandle& privateNodeHandle,
+        SR300Node(rclcpp::Node node,
+                //   ros::NodeHandle& nodeHandle,
+                //   ros::NodeHandle& privateNodeHandle,
                   rs2::device dev, const std::string& serial_no);
 
         virtual void registerDynamicReconfigCb() override;
@@ -45,7 +46,7 @@ namespace realsense2_camera
         void callback(sr300_paramsConfig &config, uint32_t level);
         void setParam(sr300_paramsConfig &config, sr300_param param);
 
-        dynamic_reconfigure::Server<sr300_paramsConfig> _server;
-        dynamic_reconfigure::Server<sr300_paramsConfig>::CallbackType _f;
+        // dynamic_reconfigure::Server<sr300_paramsConfig> _server;
+        // dynamic_reconfigure::Server<sr300_paramsConfig>::CallbackType _f;
     };
 }

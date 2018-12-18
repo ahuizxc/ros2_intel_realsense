@@ -32,8 +32,9 @@ namespace realsense2_camera
     class RS435Node : public BaseD400Node
     {
     public:
-        RS435Node(ros::NodeHandle& nodeHandle,
-                  ros::NodeHandle& privateNodeHandle,
+        RS435Node(rclcpp::Node node,
+                //   ros::NodeHandle& nodeHandle,
+                //   ros::NodeHandle& privateNodeHandle,
                   rs2::device dev, const std::string& serial_no);
 
         virtual void registerDynamicReconfigCb() override;
@@ -42,7 +43,7 @@ namespace realsense2_camera
             void callback(rs435_paramsConfig &config, uint32_t level);
             void setParam(rs435_paramsConfig &config, rs435_param param);
 
-            dynamic_reconfigure::Server<rs435_paramsConfig> _server;
-            dynamic_reconfigure::Server<rs435_paramsConfig>::CallbackType _f;
+            // dynamic_reconfigure::Server<rs435_paramsConfig> _server;
+            // dynamic_reconfigure::Server<rs435_paramsConfig>::CallbackType _f;
     };
 }

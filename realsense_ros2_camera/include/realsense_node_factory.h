@@ -4,23 +4,24 @@
 #pragma once
 
 #include <pluginlib/class_list_macros.h>
-#include <nodelet/nodelet.h>
+// #include <nodelet/nodelet.h>
 #include <image_transport/image_transport.h>
-#include <ros/ros.h>
-#include <ros/package.h>
+// #include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
+// #include <ros/package.h>
 #include <librealsense2/rs.hpp>
 #include <librealsense2/rsutil.h>
 #include <librealsense2/hpp/rs_processing.hpp>
 #include <librealsense2/rs_advanced_mode.hpp>
 #include <cv_bridge/cv_bridge.h>
-#include <sensor_msgs/CameraInfo.h>
-#include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/msg/CameraInfo.h>
+#include <sensor_msgs/msg/PointCloud2.h>
 #include <sensor_msgs/point_cloud2_iterator.h>
 #include <constants.h>
 #include <realsense2_camera/Extrinsics.h>
 #include <tf/transform_broadcaster.h>
 #include <tf2_ros/static_transform_broadcaster.h>
-#include <sensor_msgs/Imu.h>
+#include <sensor_msgs/msg/Imu.h>
 #include <realsense2_camera/IMUInfo.h>
 #include <csignal>
 #include <eigen3/Eigen/Geometry>
@@ -45,8 +46,8 @@ namespace realsense2_camera
 
     inline void signalHandler(int signum)
     {
-        ROS_INFO_STREAM(strsignal(signum) << " Signal is received! Terminating RealSense Node...");
-        ros::shutdown();
+        RCUTILS_LOG_INFO(strsignal(signum) << " Signal is received! Terminating RealSense Node...");
+        rclcpp::shutdown();
         exit(signum);
     }
 
@@ -58,7 +59,7 @@ namespace realsense2_camera
         virtual ~InterfaceRealSenseNode() = default;
     };
 
-    class RealSenseNodeFactory : public nodelet::Nodelet
+    class RealSenseNodeFactory : public rclcpp::Node
     {
     public:
         RealSenseNodeFactory();
