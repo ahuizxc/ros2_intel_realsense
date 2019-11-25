@@ -61,6 +61,9 @@ void RealSenseD435::publishTopicsCallback(const rs2::frame & frame)
 {
   rs2::frameset frameset = frame.as<rs2::frameset>();
   rclcpp::Time t = node_.now();
+
+  publishNewPCTopic(frameset, t);
+
   if (enable_[COLOR] && (image_pub_[COLOR]->get_subscription_count() > 0 || camera_info_pub_[COLOR]->get_subscription_count() > 0)){
     auto frame = frameset.get_color_frame();
     publishImageTopic(frame, t);
@@ -77,25 +80,118 @@ void RealSenseD435::publishTopicsCallback(const rs2::frame & frame)
     auto frame = frameset.get_infrared_frame(2);
     publishImageTopic(frame, t);
   }
-   if ((enable_pointcloud_ && pointcloud_pub_->get_subscription_count() > 0) || 
-      (align_depth_ && (aligned_depth_image_pub_->get_subscription_count() > 0 || 
-       aligned_depth_info_pub_->get_subscription_count() > 0))) {
-    auto aligned_frameset = align_to_color_.process(frameset);
-    auto depth = aligned_frameset.get_depth_frame();
-    if (aligned_depth_image_pub_->get_subscription_count() > 0 || aligned_depth_info_pub_->get_subscription_count() > 0) {
-      publishAlignedDepthTopic(depth, t);
-    }
-    if (pointcloud_pub_->get_subscription_count() > 0) {
-      auto color_frame = frameset.get_color_frame();
-      points_ = pc_.calculate(depth);
-      if (dense_pc_ == true) {
-        publishDensePointCloud(points_, color_frame, t);
-      } else {
-        publishSparsePointCloud(points_, color_frame, t);
-      }
-    }
-  }
+  //  if ((enable_pointcloud_ && pointcloud_pub_->get_subscription_count() > 0) || 
+  //     (align_depth_ && (aligned_depth_image_pub_->get_subscription_count() > 0 || 
+  //      aligned_depth_info_pub_->get_subscription_count() > 0))) {
+  //   auto aligned_frameset = align_to_color_.process(frameset);
+  //   auto depth = aligned_frameset.get_depth_frame();
+  //   if (aligned_depth_image_pub_->get_subscription_count() > 0 || aligned_depth_info_pub_->get_subscription_count() > 0) {
+  //     publishAlignedDepthTopic(depth, t);
+  //   }
+  //   if (pointcloud_pub_->get_subscription_count() > 0) {
+  //     auto color_frame = frameset.get_color_frame();
+  //     points_ = pc_.calculate(depth);
+  //     if (dense_pc_ == true) {
+  //       publishDensePointCloud(points_, color_frame, t);
+  //     } else {
+  //       publishSparsePointCloud(points_, color_frame, t);
+  //     }
+  //   }
+  // }
 }
+
+
+void reverse_memcpy(unsigned char* dst, const unsigned char* src, size_t n)
+{
+    size_t i;
+
+    for (i=0; i < n; ++i)
+        dst[n-1-i] = src[i];
+
+}
+
+void RealSenseD435::publishNewPCTopic(const rs2::frameset & frameset, const rclcpp::Time & t)
+{
+
+  auto pc_filter = std::make_shared<rs2::pointcloud>(RS2_STREAM_COLOR, 0);
+  auto depth_f = pc_filter->process(frameset.get_depth_frame());
+  auto texture_frame = frameset.get_color_frame();
+  auto pc = depth_f.as<rs2::points>();
+  const rs2::vertex* vertex = pc.get_vertices();
+  bool _allow_no_texture_points = true;
+  const rs2::texture_coordinate* color_point = pc.get_texture_coordinates();
+  std::list<unsigned int> valid_indices;
+  for (size_t point_idx=0; point_idx < pc.size(); point_idx++, vertex++, color_point++)
+  {
+      if (static_cast<float>(vertex->z) > 0)
+      {
+          float i = static_cast<float>(color_point->u);
+          float j = static_cast<float>(color_point->v);
+          if (_allow_no_texture_points || (i >= 0.f && i <= 1.f && j >= 0.f && j <= 1.f))
+          {
+              valid_indices.push_back(point_idx);
+          }
+      }
+  }
+
+  int texture_width(0), texture_height(0);
+  int num_colors(0);
+  sensor_msgs::msg::PointCloud2 msg_pointcloud;
+  msg_pointcloud.header.stamp = t;
+  msg_pointcloud.header.frame_id = DEFAULT_DEPTH_OPTICAL_FRAME_ID;
+  msg_pointcloud.width = valid_indices.size();
+  msg_pointcloud.height = 1;
+  msg_pointcloud.is_dense = true;
+
+  
+  // modifier.resize(msg_pointcloud.width); 
+  vertex = pc.get_vertices();
+
+
+  // rs2::video_frame texture_frame = (*texture_frame_itr).as<rs2::video_frame>();
+  texture_width = texture_frame.get_width();
+  texture_height = texture_frame.get_height();
+  num_colors = texture_frame.get_bytes_per_pixel();
+  uint8_t* color_data = (uint8_t*)texture_frame.get_data();
+  msg_pointcloud.point_step = 3 * sizeof(float) + 3 * sizeof(uint8_t);
+  msg_pointcloud.row_step = msg_pointcloud.width * msg_pointcloud.point_step;
+  msg_pointcloud.data.resize(msg_pointcloud.height * msg_pointcloud.row_step);
+
+  sensor_msgs::PointCloud2Modifier modifier(msg_pointcloud);
+  modifier.setPointCloud2FieldsByString(2, "xyz", "rgb");  
+
+  sensor_msgs::PointCloud2Iterator<float>iter_x(msg_pointcloud, "x");
+  sensor_msgs::PointCloud2Iterator<float>iter_y(msg_pointcloud, "y");
+  sensor_msgs::PointCloud2Iterator<float>iter_z(msg_pointcloud, "z");
+  sensor_msgs::PointCloud2Iterator<uint8_t> iter_r(msg_pointcloud, "r");
+  sensor_msgs::PointCloud2Iterator<uint8_t> iter_g(msg_pointcloud, "g");
+  sensor_msgs::PointCloud2Iterator<uint8_t> iter_b(msg_pointcloud, "b");
+
+  // color_point = pc.get_texture_coordinates();
+
+  int channel_num = color_frame.get_bytes_per_pixel();
+  uint8_t * color_data = (uint8_t*)color_frame.get_data();
+  float color_pixel[2];
+  unsigned int prev_idx(0);
+  for (size_t pnt_idx = 0; pnt_idx < valid_indices.size(); pnt_idx++) {
+      *iter_x = vertex[pnt_idx].x;
+      *iter_y = vertex[pnt_idx].y;
+      *iter_z = vertex[pnt_idx].z;
+
+      *iter_r = color_data[pnt_idx*channel_num];
+      *iter_g = color_data[pnt_idx*channel_num+1];
+      *iter_b = color_data[pnt_idx*channel_num+2];
+      ++iter_x;
+      ++iter_y;
+      ++iter_z;
+      ++iter_r;
+      ++iter_g;
+      ++iter_b;
+    }
+  pointcloud_pub_->publish(std::move(msg_pointcloud));
+  // std::cout << "valid points size : "<< valid_indices.size() << std::endl;
+}
+
 
 Result RealSenseD435::paramChangeCallback(const std::vector<rclcpp::Parameter> & params)
 {

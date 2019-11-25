@@ -38,7 +38,7 @@ public:
   void publishSparsePointCloud(const rs2::points & points, const rs2::video_frame & color_frame, const rclcpp::Time & time);
   void publishDensePointCloud(const rs2::points & points, const rs2::video_frame & color_frame, const rclcpp::Time & time);
   void updateStreamCalibData(const rs2::video_stream_profile & video_profile);
-
+  void publishNewPCTopic(const rs2::frameset & frameset, const rclcpp::Time & t);
 protected:
   bool align_depth_;
   bool enable_pointcloud_;
